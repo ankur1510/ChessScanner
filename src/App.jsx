@@ -4,10 +4,6 @@ import { Chessboard } from 'react-chessboard'
 import { pdfjs, Document, Page } from 'react-pdf'
 import { Chess } from 'chess.js'
 
-const CHESS_COM_ICON = '/icons/chess-com-pawn.png'
-const LICHESS_ICON = '/icons/lichess.svg'
-
-
 pdfjs.GlobalWorkerOptions.workerSrc =
   `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 
@@ -17,7 +13,7 @@ const INITIAL_FEN =
 const theme = {
   bg: '#161512',
   panel: '#262421',
-  text: '#673838',
+  text: '#bababa',
   title: '#ffffff',
   accent: '#7fa650',
   accentHover: '#8cb758',
@@ -409,6 +405,9 @@ function App() {
 
   const [stockfishEval, setStockfishEval] =
     useState(null)
+
+  const [engineLines, setEngineLines] =
+    useState([])
 
   const stockfishWorkerRef =
     useRef(null)
@@ -900,6 +899,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
       ++stockfishGenerationRef.current
 
     setStockfishEval(null)
+    setEngineLines([])
 
     try {
       worker.postMessage('stop')
@@ -940,6 +940,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
         null
 
       setStockfishEval(null)
+      setEngineLines([])
       return undefined
     }
 
@@ -976,6 +977,9 @@ function makeLegalMove(sourceSquare, targetSquare) {
       }
 
       if (line === 'uciok') {
+        worker.postMessage(
+          'setoption name MultiPV value 2'
+        )
         worker.postMessage('isready')
         return
       }
@@ -985,9 +989,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
           true
 
         if (!isEditMode) {
-          analyseCurrentPosition(
-            worker
-          )
+          analyseCurrentPosition(worker)
         }
 
         return
@@ -995,6 +997,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
 
       if (
         isEditMode ||
+        !stockfishReadyRef.current ||
         !line.startsWith('info ') ||
         !line.includes(' score ')
       ) {
@@ -1008,36 +1011,61 @@ function makeLegalMove(sourceSquare, targetSquare) {
         currentFen
           .split(/\s+/)[1] || 'w'
 
-      /*
-       * Stockfish score is relative to the side to move.
-       * Convert it to White's point of view.
-       */
+      const multiPvMatch =
+        line.match(/multipv\s+(\d+)/)
+
+      const multiPv =
+        multiPvMatch
+          ? Number(multiPvMatch[1])
+          : 1
+
+      const depthMatch =
+        line.match(/depth\s+(\d+)/)
+
+      const depth =
+        depthMatch
+          ? Number(depthMatch[1])
+          : 0
+
+      const pvMatch =
+        line.match(/\spv\s+(.+)$/)
+
+      const pv =
+        pvMatch
+          ? pvMatch[1].trim().split(/\s+/)
+          : []
+
+      if (!pv.length) {
+        return
+      }
+
       const mateMatch =
         line.match(
           /score mate (-?\d+)/
         )
-
-      if (mateMatch) {
-        const mate =
-          Number(mateMatch[1])
-
-        setStockfishEval({
-          type: 'mate',
-          value:
-            sideToMove === 'b'
-              ? -mate
-              : mate
-        })
-
-        return
-      }
 
       const cpMatch =
         line.match(
           /score cp (-?\d+)/
         )
 
-      if (cpMatch) {
+      let scoreText = '0.0'
+      let whiteScore = 0
+
+      if (mateMatch) {
+        const mate =
+          Number(mateMatch[1])
+
+        whiteScore =
+          sideToMove === 'b'
+            ? -mate
+            : mate
+
+        scoreText =
+          whiteScore > 0
+            ? `M${Math.abs(whiteScore)}`
+            : `-M${Math.abs(whiteScore)}`
+      } else if (cpMatch) {
         const cp =
           Number(cpMatch[1])
 
@@ -1046,10 +1074,58 @@ function makeLegalMove(sourceSquare, targetSquare) {
             ? -cp
             : cp
 
+        whiteScore =
+          whiteCp / 100
+
+        scoreText =
+          `${
+            whiteScore >= 0
+              ? '+'
+              : ''
+          }${whiteScore.toFixed(1)}`
+      } else {
+        return
+      }
+
+      const pvText =
+        formatEnginePV(
+          currentFen,
+          pv
+        )
+
+      setEngineLines(previous => {
+        const updated =
+          previous.filter(
+            item =>
+              item.multipv !==
+              multiPv
+          )
+
+        updated.push({
+          multipv: multiPv,
+          depth,
+          score: scoreText,
+          whiteScore,
+          line: pvText
+        })
+
+        return updated
+          .sort(
+            (a, b) =>
+              a.multipv -
+              b.multipv
+          )
+          .slice(0, 2)
+      })
+
+      if (multiPv === 1) {
         setStockfishEval({
-          type: 'cp',
+          type:
+            mateMatch
+              ? 'mate'
+              : 'cp',
           value:
-            whiteCp / 100
+            whiteScore
         })
       }
     }
@@ -1132,6 +1208,44 @@ function makeLegalMove(sourceSquare, targetSquare) {
     stockfishEnabled,
     isEditMode
   ])
+
+
+  function formatEnginePV(currentFen, pv) {
+    if (!pv || !pv.length) {
+      return ''
+    }
+
+    try {
+      const game =
+        new Chess(currentFen)
+
+      const sanMoves = []
+
+      for (const uci of pv) {
+        if (uci.length < 4) {
+          break
+        }
+
+        const move =
+          game.move({
+            from: uci.slice(0, 2),
+            to: uci.slice(2, 4),
+            promotion:
+              uci[4] || undefined
+          })
+
+        if (!move) {
+          break
+        }
+
+        sanMoves.push(move.san)
+      }
+
+      return sanMoves.join(' ')
+    } catch {
+      return pv.join(' ')
+    }
+  }
 
 
   function formatStockfishEval() {
@@ -1260,80 +1374,6 @@ function makeLegalMove(sourceSquare, targetSquare) {
     setIsEditMode(false)
     setEditorTool(null)
     setEditError('')
-  }
-
-
-  /* ==========================================================
-     EXTERNAL ANALYSIS
-     ========================================================== */
-
-  function getAnalysisFen() {
-    /*
-     * External analysis sites expect a complete FEN. Use the current
-     * board FEN, and make sure the side-to-move and move number are
-     * present even for positions produced by scanning.
-     */
-    const raw =
-      String(fen || '')
-        .trim()
-        .split(/\s+/)
-
-    const parts = [
-      raw[0] || '8/8/8/8/8/8/8/8',
-      raw[1] === 'b' ? 'b' : 'w',
-      raw[2] || '-',
-      raw[3] || '-',
-      /^\d+$/.test(raw[4] || '')
-        ? raw[4]
-        : '0',
-      /^\d+$/.test(raw[5] || '')
-        ? Math.max(1, Number(raw[5]))
-        : '1'
-    ]
-
-    return parts.join(' ')
-  }
-
-
-  function openLichessAnalysis() {
-    const analysisFen =
-      getAnalysisFen()
-
-    /*
-     * Lichess supports a FEN directly in its analysis-board URL,
-     * with spaces encoded as underscores.
-     */
-    const encodedFen =
-      analysisFen.replace(/ /g, '_')
-
-    const url =
-      `https://lichess.org/analysis/${encodedFen}`
-
-    window.open(
-      url,
-      '_blank',
-      'noopener,noreferrer'
-    )
-  }
-
-
-  function openChessComAnalysis() {
-    const analysisFen =
-      getAnalysisFen()
-
-    /*
-     * Chess.com accepts FEN through its Analysis board/editor.
-     * Encode the complete FEN so slashes, spaces and other FEN
-     * characters are safely preserved in the URL.
-     */
-    const url =
-      `https://www.chess.com/analysis?fen=${encodeURIComponent(analysisFen)}`
-
-    window.open(
-      url,
-      '_blank',
-      'noopener,noreferrer'
-    )
   }
 
 
@@ -1984,6 +2024,124 @@ function makeLegalMove(sourceSquare, targetSquare) {
             </div>
           </div>
 
+          {stockfishEnabled && (
+            <div
+              style={{
+                marginTop: '8px',
+                width: '100%',
+                backgroundColor:
+                  theme.panel,
+                border:
+                  `1px solid ${theme.border}`,
+                borderRadius: '6px',
+                overflow: 'hidden'
+              }}
+            >
+              <div
+                style={{
+                  padding: '7px 10px 6px',
+                  fontSize: '10px',
+                  fontWeight: '700',
+                  letterSpacing: '0.5px',
+                  textTransform: 'uppercase',
+                  color: theme.muted
+                }}
+              >
+                Engine Lines
+              </div>
+
+              {[1, 2].map(number => {
+                const item =
+                  engineLines.find(
+                    entry =>
+                      entry.multipv ===
+                      number
+                  )
+
+                return (
+                  <div
+                    key={number}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '8px',
+                      padding: '7px 10px',
+                      borderTop:
+                        `1px solid ${theme.border}`,
+                      minHeight: '31px'
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '15px',
+                        flexShrink: 0,
+                        fontSize: '10px',
+                        fontWeight: '800',
+                        color: theme.muted
+                      }}
+                    >
+                      {number}.
+                    </div>
+
+                    <div
+                      style={{
+                        width: '40px',
+                        flexShrink: 0,
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        color: '#d7dde3'
+                      }}
+                    >
+                      {item
+                        ? item.score
+                        : '—'}
+                    </div>
+
+                    <div
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        fontFamily:
+                          'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                        fontSize: '11px',
+                        lineHeight: '1.45',
+                        color:
+                          item
+                            ? '#d7dde3'
+                            : theme.muted,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
+                      }}
+                      title={
+                        item
+                          ? item.line
+                          : 'Waiting for Stockfish...'
+                      }
+                    >
+                      {item
+                        ? item.line
+                        : 'Waiting for Stockfish...'}
+                    </div>
+
+                    {item && (
+                      <div
+                        style={{
+                          flexShrink: 0,
+                          fontSize: '9px',
+                          color: theme.muted
+                        }}
+                      >
+                        d{item.depth}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+
           {isEditMode && (
             <div
               style={{
@@ -2215,122 +2373,16 @@ function makeLegalMove(sourceSquare, targetSquare) {
           />
 
 
-          {/* CHESS.COM ANALYSIS */}
-
-          <button
-            type="button"
-            title="Analyze on Chess.com"
-            aria-label="Analyze position on Chess.com"
-            onClick={openChessComAnalysis}
-            disabled={isEditMode}
-            style={{
-              width: '42px',
-              height: '32px',
-              padding: 0,
-              backgroundColor:
-                isEditMode
-                  ? theme.bg
-                  : theme.panel,
-              border:
-                `1px solid ${
-                  isEditMode
-                    ? theme.border
-                    : '#657383'
-                }`,
-              borderRadius: '6px',
-              cursor:
-                isEditMode
-                  ? 'not-allowed'
-                  : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity:
-                isEditMode ? 0.4 : 1,
-              transition:
-                'all 0.18s ease'
-            }}
-          >
-            <img
-              src={CHESS_COM_ICON}
-              alt=""
-              draggable="false"
-              style={{
-                width: '17px',
-                height: '22px',
-                objectFit: 'contain',
-                filter:
-                  isEditMode
-                    ? 'grayscale(1)'
-                    : 'none'
-              }}
-            />
-          </button>
-
-
-          {/* LICHESS ANALYSIS */}
-
-          <button
-            type="button"
-            title="Analyze on Lichess"
-            aria-label="Analyze position on Lichess"
-            onClick={openLichessAnalysis}
-            disabled={isEditMode}
-            style={{
-              width: '42px',
-              height: '32px',
-              padding: 0,
-              backgroundColor:
-                isEditMode
-                  ? theme.bg
-                  : theme.panel,
-              border:
-                `1px solid ${
-                  isEditMode
-                    ? theme.border
-                    : '#657383'
-                }`,
-              borderRadius: '6px',
-              cursor:
-                isEditMode
-                  ? 'not-allowed'
-                  : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity:
-                isEditMode ? 0.4 : 1,
-              transition:
-                'all 0.18s ease'
-            }}
-          >
-            <img
-              src={LICHESS_ICON}
-              alt=""
-              draggable="false"
-              style={{
-                width: '21px',
-                height: '21px',
-                objectFit: 'contain',
-                filter:
-                  'brightness(0) invert(1)',
-                opacity:
-                  isEditMode ? 0.4 : 1
-              }}
-            />
-          </button>
-
-
           {/* STOCKFISH TOGGLE */}
 
           <button
             type="button"
             title={
               stockfishEnabled
-                ? 'Disable Stockfish engine'
-                : 'Enable Stockfish engine'
+                ? 'Disable Stockfish evaluation'
+                : 'Enable Stockfish evaluation'
             }
-            aria-label="Toggle Stockfish engine"
+            aria-label="Toggle Stockfish evaluation"
             onClick={() =>
               setStockfishEnabled(
                 value => !value
@@ -2348,7 +2400,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
                 `1px solid ${
                   stockfishEnabled
                     ? theme.accent
-                    : '#a99555'
+                    : theme.border
                 }`,
               borderRadius: '6px',
               cursor: 'pointer',
@@ -2358,73 +2410,27 @@ function makeLegalMove(sourceSquare, targetSquare) {
               color:
                 stockfishEnabled
                   ? '#fff'
-                  : '#d2bd6a',
+                  : '#888',
               outline: 'none',
               transition:
-                'all 0.18s ease'
+                'all 0.2s ease'
             }}
           >
-            {/* Professional chess-engine / CPU icon */}
             <svg
-              width="20"
-              height="20"
+              width="19"
+              height="19"
               viewBox="0 0 24 24"
               fill="none"
-              aria-hidden="true"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <rect
-                x="6"
-                y="6"
-                width="12"
-                height="12"
-                rx="2"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              />
-              <path
-                d="
-                  M9 3v3
-                  M12 3v3
-                  M15 3v3
-                  M9 18v3
-                  M12 18v3
-                  M15 18v3
-                  M3 9h3
-                  M3 12h3
-                  M3 15h3
-                  M18 9h3
-                  M18 12h3
-                  M18 15h3
-                "
-                stroke="currentColor"
-                strokeWidth="1.7"
-                strokeLinecap="round"
-              />
-              <path
-                d="M9.5 10.2h5M12 10.2v3.6M9.5 13.8h5"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <circle
-                cx="9.5"
-                cy="10.2"
-                r="1"
-                fill="currentColor"
-              />
-              <circle
-                cx="14.5"
-                cy="10.2"
-                r="1"
-                fill="currentColor"
-              />
-              <circle
-                cx="12"
-                cy="13.8"
-                r="1"
-                fill="currentColor"
-              />
+              <path d="M7 4h10" />
+              <path d="M8 4v4c0 1.8 1.1 3.2 2.7 4-1.6.8-2.7 2.2-2.7 4v4" />
+              <path d="M16 4v4c0 1.8-1.1 3.2-2.7 4 1.6.8 2.7 2.2 2.7 4v4" />
+              <path d="M7 20h10" />
+              <path d="M12 8v8" />
             </svg>
           </button>
 
