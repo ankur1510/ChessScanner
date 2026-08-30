@@ -11,6 +11,11 @@ from PIL import Image, ImageEnhance
 
 app = FastAPI()
 
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
