@@ -13,6 +13,7 @@ from PIL import Image, ImageEnhance
 
 app = FastAPI()
 
+
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
@@ -28,33 +29,51 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------
-# Load the chess recognition model ONCE when the backend
-# process starts. This avoids loading PyTorch/model weights
-# on every /extract-click request.
+# Lazy-loaded chess recognition predictor
+#
+# IMPORTANT:
+# Do NOT download/load the model while importing main.py.
+# Render needs Uvicorn to bind to its assigned port first.
+#
+# The predictor is created only on the first recognition
+# request and then reused for all subsequent requests.
 # ---------------------------------------------------------
 
-MODEL_PATH = download_pretrained_model()
+predictor = None
 
-predictor = ChessPositionPredictor(
-    model_path=MODEL_PATH,
-    classifier=DEFAULT_CLASSIFIER,
-)
+
+def get_predictor():
+    global predictor
+
+    if predictor is None:
+        print("Initializing chess recognition model...")
+
+        model_path = download_pretrained_model()
+
+        predictor = ChessPositionPredictor(
+            model_path=model_path,
+            classifier=DEFAULT_CLASSIFIER,
+        )
+
+        print("Chess recognition model initialized.")
+
+    return predictor
 
 
 def fix_fen_format(raw_fen: str) -> str:
     board_part = raw_fen.split(" ")[0]
-    rows = board_part.split('/')
+    rows = board_part.split("/")
     compressed_rows = []
 
     for row in rows:
         comp_row = re.sub(
-            r'(1+)',
+            r"(1+)",
             lambda m: str(len(m.group(1))),
             row
         )
         compressed_rows.append(comp_row)
 
-    return '/'.join(compressed_rows)
+    return "/".join(compressed_rows)
 
 
 @app.post("/extract-click")
@@ -65,12 +84,25 @@ async def extract_click(
 ):
     contents = await image.read()
 
+    # -----------------------------------------------------
     # 1. Load image into OpenCV
+    # -----------------------------------------------------
+
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    if img is None:
+        return {
+            "error": "Could not decode uploaded image.",
+            "fen": "start"
+        }
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # 2. Find contours (geometric shapes)
+    # -----------------------------------------------------
+    # 2. Find contours
+    # -----------------------------------------------------
+
     thresh = cv2.adaptiveThreshold(
         gray,
         255,
@@ -90,6 +122,7 @@ async def extract_click(
 
     for cnt in contours:
         cx, cy, cw, ch = cv2.boundingRect(cnt)
+
         aspect = cw / float(ch)
 
         # Look for squares large enough to be a chessboard
@@ -103,29 +136,41 @@ async def extract_click(
 
     if not candidates:
         return {
-            "error": "Could not auto-detect a chessboard boundary at that click location.",
+            "error": (
+                "Could not auto-detect a chessboard boundary "
+                "at that click location."
+            ),
             "fen": "start"
         }
 
-    # 3. Sort by area (Ascending).
-    # Pick the smallest valid bounding box.
+    # -----------------------------------------------------
+    # 3. Pick smallest valid chessboard bounding box
+    # -----------------------------------------------------
+
     candidates.sort(key=lambda item: item[0])
 
     _, bx, by, bw, bh = candidates[0]
 
-    # 4. Crop exactly the chessboard grid
+    # -----------------------------------------------------
+    # 4. Crop the chessboard
+    # -----------------------------------------------------
+
     cropped_cv = img[
         by:by + bh,
         bx:bx + bw
     ]
 
-    # Convert OpenCV image back to PIL
+    # Convert OpenCV BGR → RGB
     cropped_rgb = cv2.cvtColor(
         cropped_cv,
         cv2.COLOR_BGR2RGB
     )
 
     pil_img = Image.fromarray(cropped_rgb)
+
+    # -----------------------------------------------------
+    # 5. Prepare image for chessimg2pos
+    # -----------------------------------------------------
 
     with tempfile.NamedTemporaryFile(
         delete=False,
@@ -140,6 +185,7 @@ async def extract_click(
 
         pil_img = pil_img.convert("RGB")
 
+        # Preserve existing debug output
         pil_img.save(
             "debug_crop.png",
             format="PNG"
@@ -152,21 +198,21 @@ async def extract_click(
 
         temp_file_path = temp_file.name
 
-    try:
-        # -------------------------------------------------
-        # IMPORTANT:
-        # Reuse the already-loaded predictor instead of
-        # calling chessimg2pos.predict_fen(), which creates
-        # a new predictor/model for every request.
-        # -------------------------------------------------
+    # -----------------------------------------------------
+    # 6. Recognize chess position
+    #
+    # Predictor is initialized only on the first request
+    # and reused thereafter.
+    # -----------------------------------------------------
 
-        result = predictor.predict_chessboard(
+    try:
+        chess_predictor = get_predictor()
+
+        result = chess_predictor.predict_chessboard(
             temp_file_path
         )
 
         raw_fen = result["fen"]
-
-        os.remove(temp_file_path)
 
         clean_fen = fix_fen_format(raw_fen)
 
@@ -178,11 +224,11 @@ async def extract_click(
         }
 
     except Exception as e:
-
-        if os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
-
         return {
             "error": str(e),
             "fen": "start"
         }
+
+    finally:
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
