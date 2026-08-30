@@ -2296,11 +2296,11 @@ function makeLegalMove(sourceSquare, targetSquare) {
                       ['bP', '\u265F']
                     ]
                   : [
-                      ['wK', '♝”'],
-                      ['wQ', '♝•'],
-                      ['wR', '♝–'],
-                      ['wB', '♝—'],
-                      ['wN', '♝˜'],
+                      ['wK', '♔'],
+                      ['wQ', '♕'],
+                      ['wR', '♖'],
+                      ['wB', '♗'],
+                      ['wN', '♘'],
                       ['wP', '\u2659']
                     ]
                 ).map(([tool, symbol]) => (
@@ -2491,11 +2491,11 @@ function makeLegalMove(sourceSquare, targetSquare) {
               >
                 {(orientation === 'white'
                   ? [
-                      ['wK', '♝”'],
-                      ['wQ', '♝•'],
-                      ['wR', '♝–'],
-                      ['wB', '♝—'],
-                      ['wN', '♝˜'],
+                      ['wK', '♔'],
+                      ['wQ', '♕'],
+                      ['wR', '♖'],
+                      ['wB', '♗'],
+                      ['wN', '♘'],
                       ['wP', '\u2659']
                     ]
                   : [
