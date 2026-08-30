@@ -790,7 +790,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
 
           const response =
             await fetch(
-              'http://localhost:8000/extract-click',
+              'https://chessscanner-backend.onrender.com/extract-click',
               {
                 method: 'POST',
                 body: formData
