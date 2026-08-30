@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from 'react'
 import { Chessboard } from 'react-chessboard'
 import { pdfjs, Document, Page } from 'react-pdf'
@@ -479,6 +478,8 @@ function App() {
 
     history.index -= 1
     historyNavigationRef.current = true
+    setSelectedSquare(null)
+    setLastMove(null)
     setFen(history.positions[history.index])
     setHistoryVersion(value => value + 1)
   }
@@ -492,6 +493,8 @@ function App() {
 
     history.index += 1
     historyNavigationRef.current = true
+    setSelectedSquare(null)
+    setLastMove(null)
     setFen(history.positions[history.index])
     setHistoryVersion(value => value + 1)
   }
@@ -533,6 +536,17 @@ function App() {
   const [editError, setEditError] =
     useState('')
 
+  /* Play-mode click/tap selection. Edit Mode does not use this. */
+  const [selectedSquare, setSelectedSquare] =
+    useState(null)
+
+  /*
+   * Last legal move played in Play Mode.
+   * Used to highlight both the source and destination squares.
+   */
+  const [lastMove, setLastMove] =
+    useState(null)
+
   /*
    * Only a NEW PDF scan increments this.
    *
@@ -564,6 +578,10 @@ function App() {
   const isBlackToMove =
     fen.trim().split(/\s+/)[1] === 'b'
 
+  useEffect(() => {
+    setSelectedSquare(null)
+  }, [fen])
+
 
   /* ==========================================================
      FILE
@@ -588,6 +606,9 @@ function App() {
   function handleTurnChange(
     newTurnLetter
   ) {
+
+    setSelectedSquare(null)
+    setLastMove(null)
 
     setFen(currentFen => {
 
@@ -677,6 +698,11 @@ function makeLegalMove(sourceSquare, targetSquare) {
 
     console.log("NEW FEN:", newFen);
 
+    setLastMove({
+      from: sourceSquare,
+      to: targetSquare
+    })
+    setSelectedSquare(null)
     setFen(newFen);
 
     return true;
@@ -740,6 +766,8 @@ function makeLegalMove(sourceSquare, targetSquare) {
           piece
         )
 
+      setSelectedSquare(null)
+      setLastMove(null)
       setFen(newFen)
 
       /*
@@ -821,6 +849,8 @@ function makeLegalMove(sourceSquare, targetSquare) {
         ? String(currentMoveNumber)
         : '1'
 
+    setSelectedSquare(null)
+    setLastMove(null)
     setFen(parts.join(' '))
 
     /*
@@ -831,17 +861,64 @@ function makeLegalMove(sourceSquare, targetSquare) {
   }
 
   function handleSquareClick({ square }) {
-    if (!isEditMode || !square) return
+    if (!square) return
 
-    if (editorTool === 'trash') {
-      updateEditSquare(square, null)
+    /* --------------------------------------------------------
+       EDIT MODE
+       -------------------------------------------------------- */
+    if (isEditMode) {
+      if (editorTool === 'trash') {
+        updateEditSquare(square, null)
+        return
+      }
+
+      const pieceChar = pieceFromTool(editorTool)
+
+      if (pieceChar) {
+        updateEditSquare(square, pieceChar)
+      }
+
       return
     }
 
-    const pieceChar = pieceFromTool(editorTool)
+    /* --------------------------------------------------------
+       PLAY MODE: click/tap-to-move
+       -------------------------------------------------------- */
+    try {
+      const game = new Chess(fen, {
+        skipValidation: true
+      })
 
-    if (pieceChar) {
-      updateEditSquare(square, pieceChar)
+      const selected = selectedSquare
+
+      if (selected) {
+        const legalMoves = game.moves({
+          square: selected,
+          verbose: true
+        })
+
+        const destination = legalMoves.find(
+          move => move.to === square
+        )
+
+        if (destination) {
+          makeLegalMove(selected, square)
+          return
+        }
+      }
+
+      const piece = game.get(square)
+
+      if (piece && piece.color === game.turn()) {
+        setSelectedSquare(
+          selected === square ? null : square
+        )
+      } else {
+        setSelectedSquare(null)
+      }
+    } catch (error) {
+      console.warn('Square selection error:', error)
+      setSelectedSquare(null)
     }
   }
 
@@ -980,6 +1057,8 @@ function makeLegalMove(sourceSquare, targetSquare) {
               index: 0
             }
             setHistoryVersion(value => value + 1)
+            setSelectedSquare(null)
+            setLastMove(null)
             setFen(scannedFen)
 
             /*
@@ -1371,6 +1450,73 @@ function makeLegalMove(sourceSquare, targetSquare) {
      CHESSBOARD OPTIONS
      ========================================================== */
 
+  const selectedMoveStyles = {}
+
+  if (!isEditMode) {
+    /* --------------------------------------------------------
+       LAST MOVE HIGHLIGHT
+       -------------------------------------------------------- */
+    if (lastMove) {
+      const lastMoveStyle = {
+        backgroundColor:
+          'rgba(255, 193, 7, 0.28)',
+        boxShadow:
+          'inset 0 0 0 3px rgba(255, 193, 7, 0.78)'
+      }
+
+      selectedMoveStyles[lastMove.from] = {
+        ...lastMoveStyle
+      }
+
+      selectedMoveStyles[lastMove.to] = {
+        ...lastMoveStyle
+      }
+    }
+
+    /* --------------------------------------------------------
+       SELECTED PIECE + LEGAL DESTINATIONS
+       -------------------------------------------------------- */
+    if (selectedSquare) {
+      try {
+        const game = new Chess(fen, {
+          skipValidation: true
+        })
+
+        const selectedMoves = game.moves({
+          square: selectedSquare,
+          verbose: true
+        })
+
+        /* Strong border around the selected piece. */
+        selectedMoveStyles[selectedSquare] = {
+          ...selectedMoveStyles[selectedSquare],
+          boxShadow:
+            'inset 0 0 0 4px rgba(255, 214, 70, 0.95)',
+          backgroundColor:
+            'rgba(255, 214, 70, 0.30)'
+        }
+
+        selectedMoves.forEach(move => {
+          const isCapture =
+            Boolean(move.captured) ||
+            move.flags.includes('e')
+
+          selectedMoveStyles[move.to] = {
+            ...selectedMoveStyles[move.to],
+            backgroundColor: isCapture
+              ? 'rgba(220, 80, 70, 0.34)'
+              : 'rgba(255, 214, 70, 0.22)',
+            boxShadow: isCapture
+              ? 'inset 0 0 0 4px rgba(220, 80, 70, 0.82)'
+              : 'inset 0 0 0 4px rgba(255, 214, 70, 0.82)'
+          }
+        })
+      } catch {
+        /* Ignore invalid temporary positions. */
+      }
+    }
+  }
+
   const chessboardOptions = {
 
     /*
@@ -1400,6 +1546,9 @@ function makeLegalMove(sourceSquare, targetSquare) {
     onSquareClick:
       handleSquareClick,
 
+    squareStyles:
+      selectedMoveStyles,
+
     darkSquareStyle: {
       backgroundColor:
         '#739552'
@@ -1421,6 +1570,8 @@ function makeLegalMove(sourceSquare, targetSquare) {
       positions: [INITIAL_FEN],
       index: 0
     }
+    setSelectedSquare(null)
+    setLastMove(null)
     setFen(INITIAL_FEN)
     setHistoryVersion(value => value + 1)
     setIsEditMode(false)
@@ -2142,15 +2293,15 @@ function makeLegalMove(sourceSquare, targetSquare) {
                       ['bR', '♜'],
                       ['bB', '♝'],
                       ['bN', '♞'],
-                      ['bP', '♟']
+                      ['bP', '\u265F']
                     ]
                   : [
-                      ['wK', '♔'],
-                      ['wQ', '♕'],
-                      ['wR', '♖'],
-                      ['wB', '♗'],
-                      ['wN', '♘'],
-                      ['wP', '♙']
+                      ['wK', '♝”'],
+                      ['wQ', '♝•'],
+                      ['wR', '♝–'],
+                      ['wB', '♝—'],
+                      ['wN', '♝˜'],
+                      ['wP', '\u2659']
                     ]
                 ).map(([tool, symbol]) => (
                   <button
@@ -2315,7 +2466,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
               }}
             >
               <Chessboard
-                key={`scan-${scanVersion}`}
+                key={`scan-${scanVersion}-${selectedSquare || 'none'}-${lastMove?.from || 'none'}-${lastMove?.to || 'none'}`}
                 options={chessboardOptions}
               />
             </div>
@@ -2340,12 +2491,12 @@ function makeLegalMove(sourceSquare, targetSquare) {
               >
                 {(orientation === 'white'
                   ? [
-                      ['wK', '♔'],
-                      ['wQ', '♕'],
-                      ['wR', '♖'],
-                      ['wB', '♗'],
-                      ['wN', '♘'],
-                      ['wP', '♙']
+                      ['wK', '♝”'],
+                      ['wQ', '♝•'],
+                      ['wR', '♝–'],
+                      ['wB', '♝—'],
+                      ['wN', '♝˜'],
+                      ['wP', '\u2659']
                     ]
                   : [
                       ['bK', '♚'],
@@ -2353,7 +2504,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
                       ['bR', '♜'],
                       ['bB', '♝'],
                       ['bN', '♞'],
-                      ['bP', '♟']
+                      ['bP', '\u265F']
                     ]
                 ).map(([tool, symbol]) => (
                   <button
@@ -2608,7 +2759,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
                 transition: 'all 0.2s ease'
               }}
             >
-              {isBlackToMove ? '♟' : '♙'}
+              {isBlackToMove ? '\u265F' : '\u2659'}
             </span>
           </button>
 
@@ -2947,6 +3098,8 @@ function makeLegalMove(sourceSquare, targetSquare) {
                   )
                 }
 
+                setSelectedSquare(null)
+                setLastMove(null)
                 setFen(editedFen)
                 setEditError('')
                 setEditorTool(null)
@@ -3228,11 +3381,11 @@ function makeLegalMove(sourceSquare, targetSquare) {
               value={
                 fen
               }
-              onChange={event =>
-                setFen(
-                  event.target.value
-                )
-              }
+              onChange={event => {
+                setSelectedSquare(null)
+                setLastMove(null)
+                setFen(event.target.value)
+              }}
               rows={3}
               style={{
                 width:
@@ -3360,3 +3513,4 @@ function makeLegalMove(sourceSquare, targetSquare) {
 }
 
 export default App
+
