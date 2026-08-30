@@ -286,15 +286,18 @@ function editPosition(
 function KnightLoader() {
   return (
     <div
+      className="chessscanner-loader-card"
       style={{
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: '16px',
+        gap: '14px',
         backgroundColor: theme.panel,
-        padding: '30px 50px',
+        padding: '26px 36px',
         borderRadius: '12px',
-        boxShadow: theme.boardShadow
+        boxShadow: theme.boardShadow,
+        width: 'min(320px, calc(100vw - 40px))',
+        boxSizing: 'border-box'
       }}
     >
       <style>
@@ -305,33 +308,95 @@ function KnightLoader() {
             }
 
             50% {
-              transform: translateY(-20px) scale(1.1);
+              transform: translateY(-14px) scale(1.08);
+            }
+          }
+
+          @keyframes chessProgress {
+            0% {
+              transform: translateX(-130%);
+            }
+
+            100% {
+              transform: translateX(300%);
+            }
+          }
+
+          .chessscanner-loader-knight {
+            font-size: 52px;
+            color: ${theme.accent};
+            animation: knightJump 0.8s infinite ease-in-out;
+            display: inline-block;
+            line-height: 1;
+          }
+
+          .chessscanner-loader-text {
+            color: ${theme.title};
+            font-weight: bold;
+            font-size: 16px;
+            text-align: center;
+          }
+
+          .chessscanner-progress-track {
+            width: 100%;
+            height: 5px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: ${theme.border};
+          }
+
+          .chessscanner-progress-bar {
+            width: 35%;
+            height: 100%;
+            border-radius: 999px;
+            background: ${theme.accent};
+            animation: chessProgress 1.3s infinite ease-in-out;
+          }
+
+          @media (max-width: 768px) {
+            .chessscanner-loader-card {
+              width: min(280px, calc(100vw - 32px)) !important;
+              padding: 22px 26px !important;
+              gap: 12px !important;
+              border-radius: 10px !important;
+            }
+
+            .chessscanner-loader-knight {
+              font-size: 44px !important;
+            }
+
+            .chessscanner-loader-text {
+              font-size: 14px !important;
+            }
+
+            .chessscanner-progress-track {
+              height: 4px !important;
+            }
+          }
+
+          @media (max-width: 380px) {
+            .chessscanner-loader-card {
+              width: calc(100vw - 24px) !important;
+              padding: 20px 22px !important;
+            }
+
+            .chessscanner-loader-knight {
+              font-size: 40px !important;
             }
           }
         `}
       </style>
 
-      <div
-        style={{
-          fontSize: '56px',
-          color: theme.accent,
-          animation:
-            'knightJump 0.6s infinite ease-in-out',
-          display: 'inline-block',
-          lineHeight: '1'
-        }}
-      >
+      <div className="chessscanner-loader-knight">
         ♞
       </div>
 
-      <div
-        style={{
-          color: theme.title,
-          fontWeight: 'bold',
-          fontSize: '16px'
-        }}
-      >
+      <div className="chessscanner-loader-text">
         Analyzing Position...
+      </div>
+
+      <div className="chessscanner-progress-track">
+        <div className="chessscanner-progress-bar" />
       </div>
     </div>
   )
@@ -1343,6 +1408,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
 
   return (
     <div
+      className="chessscanner-app"
       style={{
         display: 'flex',
         height: '100vh',
@@ -1357,12 +1423,163 @@ function makeLegalMove(sourceSquare, targetSquare) {
           'hidden'
       }}
     >
+      <style>{`
+        .chessscanner-app {
+          box-sizing: border-box;
+          min-height: 100vh;
+        }
+
+        .chessscanner-pdf-panel,
+        .chessscanner-chess-panel {
+          box-sizing: border-box;
+          min-width: 0;
+        }
+
+        .chessscanner-pdf-scroll {
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .chessscanner-pdf-page {
+          box-sizing: border-box;
+        }
+
+        @media (max-width: 768px) {
+          .chessscanner-app {
+            display: flex !important;
+            flex-direction: column !important;
+            width: 100% !important;
+            min-height: 100dvh !important;
+            height: auto !important;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+          }
+
+          .chessscanner-pdf-panel {
+            flex: 0 0 auto !important;
+            width: 100% !important;
+            height: auto !important;
+            border-right: none !important;
+            border-bottom: 1px solid rgba(128,128,128,.25);
+            overflow: hidden !important;
+          }
+
+          .chessscanner-pdf-header {
+            padding: 12px 14px !important;
+          }
+
+          .chessscanner-pdf-header h1 {
+            font-size: 18px !important;
+            gap: 7px !important;
+          }
+
+          .chessscanner-pdf-header h1 span {
+            font-size: 24px !important;
+          }
+
+          .chessscanner-pdf-scroll {
+            flex: none !important;
+            height: auto !important;
+            max-height: 58dvh !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+          }
+
+          .chessscanner-pdf-content {
+            padding: 16px 8px !important;
+            width: 100%;
+            box-sizing: border-box;
+          }
+
+          .chessscanner-pdf-page {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin-bottom: 18px !important;
+            overflow: hidden;
+          }
+
+          .chessscanner-pdf-page .react-pdf__Page {
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+
+          .chessscanner-pdf-page canvas {
+            width: 100% !important;
+            height: auto !important;
+            max-width: 100% !important;
+          }
+
+          .chessscanner-chess-panel {
+            flex: 0 0 auto !important;
+            width: 100% !important;
+            padding: 18px 12px 30px !important;
+            overflow-x: hidden !important;
+            overflow-y: visible !important;
+          }
+
+          .chessscanner-board-row {
+            width: 100% !important;
+          }
+
+          .chessscanner-toolbar {
+            margin-top: 16px !important;
+            gap: 7px !important;
+            height: 42px !important;
+          }
+
+          .chessscanner-toolbar button {
+            min-width: 42px !important;
+            width: 42px !important;
+            height: 40px !important;
+            min-height: 40px !important;
+            flex-shrink: 0 !important;
+            touch-action: manipulation;
+          }
+
+          .chessscanner-fen {
+            margin-top: 18px !important;
+          }
+
+          .chessscanner-fen textarea {
+            font-size: 12px !important;
+            min-height: 80px;
+          }
+
+          .chessscanner-board-row,
+          .chessscanner-board-row * {
+            touch-action: manipulation;
+          }
+
+          .chessscanner-upload {
+            min-height: 40px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+          }
+        }
+
+        @media (max-width: 380px) {
+          .chessscanner-chess-panel {
+            padding-left: 8px !important;
+            padding-right: 8px !important;
+          }
+
+          .chessscanner-toolbar {
+            gap: 5px !important;
+          }
+
+          .chessscanner-toolbar button {
+            min-width: 39px !important;
+            width: 39px !important;
+          }
+        }
+      `}</style>
 
       {/* ======================================================
           PDF PANEL
           ====================================================== */}
 
       <div
+        className="chessscanner-pdf-panel"
         style={{
           flex: 1,
           minWidth: 0,
@@ -1376,6 +1593,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
       >
 
         <div
+          className="chessscanner-pdf-header"
           style={{
             backgroundColor:
               theme.panel,
@@ -1426,6 +1644,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
 
 
           <label
+            className="chessscanner-upload"
             style={{
               backgroundColor:
                 theme.accent,
@@ -1466,6 +1685,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
 
 
         <div
+          className="chessscanner-pdf-scroll"
           style={{
             flex: 1,
             overflowY:
@@ -1483,6 +1703,18 @@ function makeLegalMove(sourceSquare, targetSquare) {
               style={{
                 position:
                   'fixed',
+                top:
+                  0,
+                left:
+                  0,
+                right:
+                  0,
+                bottom:
+                  0,
+                width:
+                  '100vw',
+                height:
+                  '100vh',
                 top:
                   0,
                 left:
@@ -1510,6 +1742,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
 
 
           <div
+            className="chessscanner-pdf-content"
             style={{
               padding:
                 '30px 0',
@@ -1544,6 +1777,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
                   (_, index) => (
 
                     <div
+                      className="chessscanner-pdf-page"
                       key={
                         `page_${index + 1}`
                       }
@@ -1649,6 +1883,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
           ====================================================== */}
 
       <div
+        className="chessscanner-chess-panel"
         style={{
           flex:
             '0 0 450px',
@@ -1892,6 +2127,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
           )}
 
           <div
+            className="chessscanner-board-row"
             style={{
               width: '100%',
               display: 'flex',
@@ -2116,6 +2352,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
         ==================================================== */}
 
         <div
+          className="chessscanner-toolbar"
           style={{
             width:
               '100%',
@@ -2774,6 +3011,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
         ==================================================== */}
 
         <div
+          className="chessscanner-fen"
           style={{
             marginTop:
               '24px',
