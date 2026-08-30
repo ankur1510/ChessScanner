@@ -276,6 +276,15 @@ function editPosition(
   parts[4] =
     '0'
 
+  /* FEN fullmove number must always be a positive integer. */
+  const currentMoveNumber =
+    Number.parseInt(parts[5], 10)
+
+  parts[5] =
+    Number.isInteger(currentMoveNumber) && currentMoveNumber > 0
+      ? String(currentMoveNumber)
+      : '1'
+
   return parts.join(' ')
 }
 
@@ -423,6 +432,76 @@ function App() {
    */
   const [fen, setFen] =
     useState(INITIAL_FEN)
+
+  /*
+   * Position history for Previous / Next navigation.
+   * The board itself remains controlled exclusively by `fen`.
+   */
+  const historyRef = useRef({
+    positions: [INITIAL_FEN],
+    index: 0
+  })
+
+  const [, setHistoryVersion] =
+    useState(0)
+
+  const historyNavigationRef =
+    useRef(false)
+
+  useEffect(() => {
+    if (historyNavigationRef.current) {
+      historyNavigationRef.current = false
+      setHistoryVersion(value => value + 1)
+      return
+    }
+
+    const history = historyRef.current
+    const current = history.positions[history.index]
+
+    if (current === fen) {
+      return
+    }
+
+    /* A new position after going backward creates a new branch. */
+    history.positions =
+      history.positions.slice(0, history.index + 1)
+    history.positions.push(fen)
+    history.index = history.positions.length - 1
+    setHistoryVersion(value => value + 1)
+  }, [fen])
+
+  function handlePreviousPosition() {
+    const history = historyRef.current
+
+    if (history.index <= 0) {
+      return
+    }
+
+    history.index -= 1
+    historyNavigationRef.current = true
+    setFen(history.positions[history.index])
+    setHistoryVersion(value => value + 1)
+  }
+
+  function handleNextPosition() {
+    const history = historyRef.current
+
+    if (history.index >= history.positions.length - 1) {
+      return
+    }
+
+    history.index += 1
+    historyNavigationRef.current = true
+    setFen(history.positions[history.index])
+    setHistoryVersion(value => value + 1)
+  }
+
+  const canGoPrevious =
+    historyRef.current.index > 0
+
+  const canGoNext =
+    historyRef.current.index <
+    historyRef.current.positions.length - 1
 
   const [orientation, setOrientation] =
     useState('white')
@@ -719,7 +798,7 @@ function makeLegalMove(sourceSquare, targetSquare) {
 
     grid[row][col] = pieceChar || null
 
-    const parts = fen.trim().split(/\\s+/)
+    const parts = fen.trim().split(/\s+/)
 
     while (parts.length < 6) {
       parts.push('-')
@@ -733,6 +812,14 @@ function makeLegalMove(sourceSquare, targetSquare) {
     parts[2] = '-'
     parts[3] = '-'
     parts[4] = '0'
+
+    const currentMoveNumber =
+      Number.parseInt(parts[5], 10)
+
+    parts[5] =
+      Number.isInteger(currentMoveNumber) && currentMoveNumber > 0
+        ? String(currentMoveNumber)
+        : '1'
 
     setFen(parts.join(' '))
 
@@ -882,9 +969,18 @@ function makeLegalMove(sourceSquare, targetSquare) {
             /*
              * New scanner position.
              */
-            setFen(
+            const scannedFen =
               data.fen.trim()
-            )
+
+            /*
+             * A fresh scan starts a fresh position history.
+             */
+            historyRef.current = {
+              positions: [scannedFen],
+              index: 0
+            }
+            setHistoryVersion(value => value + 1)
+            setFen(scannedFen)
 
             /*
              * Deliberate board refresh ONLY for scanner
@@ -1321,7 +1417,12 @@ function makeLegalMove(sourceSquare, targetSquare) {
      ========================================================== */
 
   function handleResetBoard() {
+    historyRef.current = {
+      positions: [INITIAL_FEN],
+      index: 0
+    }
     setFen(INITIAL_FEN)
+    setHistoryVersion(value => value + 1)
     setIsEditMode(false)
     setEditorTool(null)
     setEditError('')
@@ -2367,6 +2468,74 @@ function makeLegalMove(sourceSquare, targetSquare) {
           }}
         >
 
+          {/* PREVIOUS POSITION */}
+
+          <button
+            type="button"
+            title="Previous position"
+            aria-label="Previous position"
+            onClick={handlePreviousPosition}
+            disabled={!canGoPrevious}
+            style={{
+              width: '38px',
+              height: '32px',
+              flexShrink: 0,
+              padding: 0,
+              border: `1px solid ${theme.border}`,
+              borderRadius: '6px',
+              backgroundColor: canGoPrevious
+                ? theme.bg
+                : '#1d1c1a',
+              color: canGoPrevious
+                ? theme.title
+                : '#555',
+              cursor: canGoPrevious
+                ? 'pointer'
+                : 'default',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '22px',
+              lineHeight: 1
+            }}
+          >
+            ←
+          </button>
+
+          {/* NEXT POSITION */}
+
+          <button
+            type="button"
+            title="Next position"
+            aria-label="Next position"
+            onClick={handleNextPosition}
+            disabled={!canGoNext}
+            style={{
+              width: '38px',
+              height: '32px',
+              flexShrink: 0,
+              padding: 0,
+              border: `1px solid ${theme.border}`,
+              borderRadius: '6px',
+              backgroundColor: canGoNext
+                ? theme.bg
+                : '#1d1c1a',
+              color: canGoNext
+                ? theme.title
+                : '#555',
+              cursor: canGoNext
+                ? 'pointer'
+                : 'default',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '22px',
+              lineHeight: 1
+            }}
+          >
+            →
+          </button>
+
           {/* TURN TOGGLE */}
 
           <button
@@ -2697,13 +2866,21 @@ function makeLegalMove(sourceSquare, targetSquare) {
                   .trim()
                   .split(/\s+/)
 
+              const parsedMoveNumber =
+                Number.parseInt(raw[5], 10)
+
+              const safeMoveNumber =
+                Number.isInteger(parsedMoveNumber) && parsedMoveNumber > 0
+                  ? parsedMoveNumber
+                  : 1
+
               const parts = [
                 raw[0] || '8/8/8/8/8/8/8/8',
                 'w',
                 '-',
                 '-',
                 '0',
-                raw[5] || '1'
+                String(safeMoveNumber)
               ]
 
               const editedFen =
